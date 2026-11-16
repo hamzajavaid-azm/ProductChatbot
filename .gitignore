@@ -1,0 +1,33 @@
+# ---- .NET build output ----
+bin/
+obj/
+out/
+
+# ---- Visual Studio / Rider / VS Code ----
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# ---- Rider ----
+*.DotSettings.user
+
+# ---- Build / publish ----
+publish/
+*.binlog
+
+# ---- OS noise ----
+.DS_Store
+Thumbs.db
+
+# ---- Uploaded source files (originals kept on disk, not in git) ----
+uploads/
+
+# ---- Local-only / secrets ----
+# NOTE: appsettings*.json and the ML model under MLModels/ ARE committed on purpose
+#       so the repo builds and runs on clone without extra downloads.
+*.env
+secrets.json

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Product Chatbot (RAG)</title>
+</head>
+<body style="font-family: system-ui, -apple-system, Segoe UI, sans-serif; max-width: 680px; margin: 0 auto; padding: 16px; background: #f5f5f5;">
+
+    <h1 style="font-size: 20px; margin: 8px 0;">Product Chatbot <span style="font-weight: normal; color: #888; font-size: 14px;">(pgvector RAG, /chat)</span></h1>
+
+    <!-- Upload a document to add it to the knowledge base -->
+    <div style="display: flex; gap: 8px; align-items: center; border: 1px solid #ccc; border-radius: 8px; padding: 10px; background: #fff; margin-bottom: 12px;">
+        <input id="file" type="file" accept=".pdf,.xlsx,.csv,.txt,.md"
+               style="flex: 1; font-size: 13px;" />
+        <button id="upload"
+                style="padding: 8px 14px; border: none; border-radius: 6px; background: #16a34a; color: #fff; font-size: 14px; cursor: pointer;">
+            Upload
+        </button>
+    </div>
+    <div id="uploadStatus" style="font-size: 12px; color: #666; margin: 0 0 12px 2px; min-height: 16px;"></div>
+
+    <!-- Add custom knowledge by hand (Q&A / spec / policy) -> POST /content -->
+    <details style="border: 1px solid #ccc; border-radius: 8px; background: #fff; margin-bottom: 12px;">
+        <summary style="cursor: pointer; padding: 10px; font-size: 14px; font-weight: 600; color: #333;">➕ Add custom knowledge</summary>
+        <div style="padding: 0 10px 10px;">
+            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                <select id="kbType" style="padding: 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px;">
+                    <option value="faq">FAQ</option>
+                    <option value="spec">Spec</option>
+                    <option value="description">Description</option>
+                    <option value="policy">Policy</option>
+                    <option value="doc">Doc</option>
+                </select>
+                <input id="kbTitle" type="text" placeholder="Question / title (optional)"
+                       style="flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px;" />
+            </div>
+            <textarea id="kbContent" rows="3" placeholder="Answer / content"
+                      style="width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; resize: vertical;"></textarea>
+            <div style="display: flex; align-items: center; gap: 10px; margin-top: 8px;">
+                <button id="kbAdd"
+                        style="padding: 8px 16px; border: none; border-radius: 6px; background: #7c3aed; color: #fff; font-size: 14px; cursor: pointer;">
+                    Add to knowledge base
+                </button>
+                <span id="kbStatus" style="font-size: 12px; color: #666;"></span>
+            </div>
+        </div>
+    </details>
+
+    <div id="messages" style="height: 360px; overflow-y: auto; border: 1px solid #ccc; border-radius: 8px; padding: 12px; background: #fff; margin-bottom: 12px;"></div>
+
+    <div style="display: flex; gap: 8px;">
+        <input id="input" type="text" placeholder="Ask a question about the product..." autocomplete="off"
+               style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 15px;" />
+        <button id="send"
+                style="padding: 10px 18px; border: none; border-radius: 6px; background: #2563eb; color: #fff; font-size: 15px; cursor: pointer;">
+            Send
+        </button>
+    </div>
+
+    <script>
+        const messagesEl = document.getElementById("messages");
+        const inputEl = document.getElementById("input");
+        const sendEl = document.getElementById("send");
+        const fileEl = document.getElementById("file");
+        const uploadEl = document.getElementById("upload");
+        const uploadStatusEl = document.getElementById("uploadStatus");
+        const kbTypeEl = document.getElementById("kbType");
+        const kbTitleEl = document.getElementById("kbTitle");
+        const kbContentEl = document.getElementById("kbContent");
+        const kbAddEl = document.getElementById("kbAdd");
+        const kbStatusEl = document.getElementById("kbStatus");
+
+        function addMessage(who, text, align, color) {
+            const wrap = document.createElement("div");
+            wrap.style.margin = "6px 0";
+            wrap.style.textAlign = align;
+
+            const bubble = document.createElement("span");
+            bubble.style.display = "inline-block";
+            bubble.style.maxWidth = "80%";
+            bubble.style.padding = "8px 12px";
+            bubble.style.borderRadius = "12px";
+            bubble.style.background = color;
+            bubble.style.whiteSpace = "pre-wrap";
+            bubble.style.textAlign = "left";
+            bubble.innerHTML = "<strong>" + who + ":</strong> " + text;
+
+            wrap.appendChild(bubble);
+            messagesEl.appendChild(wrap);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        async function send() {
+            const text = inputEl.value.trim();
+            if (!text) return;
+
+            addMessage("You", escapeHtml(text), "right", "#dbeafe");
+            inputEl.value = "";
+            inputEl.focus();
+
+            try {
+                const res = await fetch("/chat", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ message: text })
+                });
+
+                if (!res.ok) {
+                    addMessage("Bot", "Request failed (HTTP " + res.status + ")", "left", "#fee2e2");
+                    return;
+                }
+
+                const data = await res.json();
+                const score = typeof data.score === "number" ? data.score.toFixed(3) : data.score;
+                const srcCount = Array.isArray(data.sources) ? data.sources.length : 0;
+                addMessage("Bot", escapeHtml(data.answer) +
+                    " <span style='color:#888; font-size:12px;'>(score: " + score + ", " + srcCount + " sources)</span>",
+                    "left", "#e5e7eb");
+            } catch (err) {
+                addMessage("Bot", "Error: " + escapeHtml(String(err)), "left", "#fee2e2");
+            }
+        }
+
+        async function upload() {
+            const f = fileEl.files[0];
+            if (!f) { uploadStatusEl.textContent = "Choose a file first."; return; }
+
+            uploadStatusEl.textContent = "Uploading & embedding “" + f.name + "”...";
+            uploadEl.disabled = true;
+
+            try {
+                const form = new FormData();
+                form.append("file", f);
+                const res = await fetch("/documents/upload", { method: "POST", body: form });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    uploadStatusEl.textContent = "Upload failed: " + (data.detail || data.error || res.status);
+                } else {
+                    uploadStatusEl.textContent = "Ingested “" + f.name + "” → document #" +
+                        data.documentId + ", " + data.chunkCount + " chunks.";
+                    fileEl.value = "";
+                }
+            } catch (err) {
+                uploadStatusEl.textContent = "Upload error: " + String(err);
+            } finally {
+                uploadEl.disabled = false;
+            }
+        }
+
+        async function addKnowledge() {
+            const content = kbContentEl.value.trim();
+            if (!content) { kbStatusEl.textContent = "Content is required."; return; }
+
+            kbAddEl.disabled = true;
+            kbStatusEl.textContent = "Saving & embedding...";
+
+            try {
+                const res = await fetch("/content", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        type: kbTypeEl.value,
+                        title: kbTitleEl.value.trim() || null,
+                        content: content
+                    })
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    kbStatusEl.textContent = "Failed: " + (data.error || res.status);
+                } else {
+                    kbStatusEl.textContent = "Added → document #" + data.documentId + " (" + kbTypeEl.value + ").";
+                    kbTitleEl.value = "";
+                    kbContentEl.value = "";
+                }
+            } catch (err) {
+                kbStatusEl.textContent = "Error: " + String(err);
+            } finally {
+                kbAddEl.disabled = false;
+            }
+        }
+
+        function escapeHtml(s) {
+            return s
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
+        }
+
+        sendEl.addEventListener("click", send);
+        uploadEl.addEventListener("click", upload);
+        kbAddEl.addEventListener("click", addKnowledge);
+        inputEl.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                send();
+            }
+        });
+
+        inputEl.focus();
+    </script>
+</body>
+</html>
